@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -70,9 +69,11 @@ func findEnvTemplates() []string {
 		log.Fatal(err)
 	}
 
-	envRegex, err := regexp.Compile(`(?i)(^|/)(\.env\.(sample|local)|local\.env)$`)
-	if err != nil {
-		log.Fatal(err)
+	envFilesToCheck := []string{
+		".env.sample",
+		".env.local",
+		"local.env",
+		".env.example",
 	}
 
 	var envPaths []string
@@ -82,8 +83,7 @@ func findEnvTemplates() []string {
 			return nil
 		}
 
-		if envRegex.MatchString(path) {
-			fmt.Println(path)
+		if isEnvFile(path, envFilesToCheck) {
 			envPaths = append(envPaths, path)
 		}
 		return nil
@@ -92,17 +92,46 @@ func findEnvTemplates() []string {
 	return envPaths
 }
 
+func isEnvFile(path string, envFiles []string) bool {
+	for _, envFile := range envFiles {
+		if strings.HasSuffix(path, envFile) {
+			return true
+		}
+	}
+	return false
+}
+
 func generateJsonConfig(data map[string]string) {
+	shouldGenerateConfig := Ask("Do you want genvy to generate a json file containing the environment variables for reference?")
+	if !shouldGenerateConfig {
+		return
+	}
+
 	jsonString, err := json.MarshalIndent(data, "", "    ")
 
 	if err != nil {
-		panic("Couldn't generate genvy config file")
+		log.Fatal(err)
 	}
 
 	err = os.WriteFile("./.genvy.config.json", jsonString, 0644)
 
 	if err != nil {
-		panic("Failed to write genvy config")
+		log.Fatal(err)
+	}
+
+	shouldAddToGitIgnore := Ask("Do you want to add generated config file to .gitignore?")
+
+	if shouldAddToGitIgnore {
+		f, err := os.OpenFile(".gitignore", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		defer f.Close()
+
+		if _, err = f.WriteString(".genvy.config.json"); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -118,4 +147,5 @@ func generateEnvFiles(envVars map[string]string) {
 	for key, value := range envVars {
 		f.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 	}
+
 }
