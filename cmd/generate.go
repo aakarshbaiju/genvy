@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,20 +13,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var generateCmd = &cobra.Command{
-	Use:   "generate",
-	Short: "Generate a .env file from a template file by prompting for missing values.",
-	Long: `The generate command reads an environment template file like .env.sample or local.env and helps you create a .env file by prompting for any missing values. 
+var (
+	generateCmd = &cobra.Command{
+		Use:   "generate",
+		Short: "Generate a .env file from a template file by prompting for missing values.",
+		Long: `The generate command reads an environment template file like .env.sample or local.env and helps you create a .env file by prompting for any missing values. 
 Examples Usage:
   genvy generate`,
-	Run: generateEnv,
-}
+		Run: generateEnv,
+	}
+
+	matchableTemplates []string
+)
 
 func init() {
 	rootCmd.AddCommand(generateCmd)
+	generateCmd.Flags().StringSliceVarP(&matchableTemplates, "templates", "t", []string{}, "Additioinal environment file templates for which environment variables are required")
 }
 
 func generateEnv(cmd *cobra.Command, args []string) {
+	fmt.Println(matchableTemplates)
 	templates := findEnvTemplates()
 	envVars := processTemplates(templates)
 	generateJsonConfig(envVars)
@@ -76,6 +83,10 @@ func findEnvTemplates() []string {
 		".env.example",
 	}
 
+	if len(matchableTemplates) > 0 {
+		envFilesToCheck = append(envFilesToCheck, matchableTemplates...)
+	}
+
 	var envPaths []string
 
 	filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
@@ -119,19 +130,14 @@ func generateJsonConfig(data map[string]string) {
 		log.Fatal(err)
 	}
 
+	if _, err := os.Stat("./.gitignore"); errors.Is(err, os.ErrNotExist) {
+		return
+	}
+
 	shouldAddToGitIgnore := Ask("Do you want to add generated config file to .gitignore?")
 
 	if shouldAddToGitIgnore {
-		f, err := os.OpenFile(".gitignore", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		defer f.Close()
-
-		if _, err = f.WriteString(".genvy.config.json"); err != nil {
-			panic(err)
-		}
+		AddConfigToGitIgnore()
 	}
 }
 
